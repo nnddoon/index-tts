@@ -2,6 +2,7 @@ import os
 import re
 import time
 from subprocess import CalledProcessError
+import io
 
 import numpy as np
 import sentencepiece as spm
@@ -25,7 +26,7 @@ from indextts.utils.front import TextNormalizer
 
 class IndexTTS:
     def __init__(
-        self, cfg_path="checkpoints/config.yaml", model_dir="checkpoints", is_fp16=True, device=None, use_cuda_kernel=None,
+        self, cfg_path="checkpoints/config.yaml", model_dir="checkpoints", is_fp16=True, device=None, use_cuda_kernel=True,
     ):
         """
         Args:
@@ -123,7 +124,7 @@ class IndexTTS:
         self.gr_progress = None
 
     def preprocess_text(self, text):
-        # chinese_punctuation = "，。！？；：“”‘’（）【】《》"
+        # chinese_punctuation = "，。！？；：""''()[]<>"
         # english_punctuation = ",.!?;:\"\"''()[]<>"
         #
         # # 创建一个映射字典
@@ -238,8 +239,8 @@ class IndexTTS:
         
         
         
-    # 快速推理：对于“多句长文本”，可实现至少 2~10 倍以上的速度提升~ （First modified by sunnyboxs 2025-04-16）
-    def infer_fast(self, audio_prompt, text, output_path, verbose=False):
+    # 快速推理：对于"多句长文本"，可实现至少 2~10 倍以上的速度提升~ （First modified by sunnyboxs 2025-04-16）
+    def infer_fast(self, audio_prompt, text, output_path="", verbose=False):
         print(">> start fast inference...")
         self._set_gr_progress(0, "start fast inference...")
         if verbose:
@@ -428,15 +429,20 @@ class IndexTTS:
         wav = wav.cpu() # to cpu
         if output_path:
             # 直接保存音频到指定路径中
-            os.makedirs(os.path.dirname(output_path),exist_ok=True)
+            # os.makedirs(os.path.dirname(output_path),exist_ok=True)
             torchaudio.save(output_path, wav.type(torch.int16), sampling_rate)
             print(">> wav file saved to:", output_path)
             return output_path
         else:
-            # 返回以符合Gradio的格式要求
-            wav_data = wav.type(torch.int16)
-            wav_data = wav_data.numpy().T  
-            return (sampling_rate, wav_data)
+            # Convert audio tensor to bytes in WAV format
+            wav_int16 = wav.type(torch.int16) # Ensure correct data type
+            buffer = io.BytesIO() # Create an in-memory buffer
+            # Save the tensor to the buffer as a WAV file
+            # Note: We use wav.cpu() because torchaudio.save expects a CPU tensor
+            torchaudio.save(buffer, wav_int16.cpu(), sampling_rate, format="wav")
+            buffer.seek(0) # Rewind the buffer to the beginning
+            wav_bytes = buffer.read() # Read the bytes
+            return wav_bytes # Return the raw audio bytes
         
     
     
@@ -594,17 +600,25 @@ class IndexTTS:
             print(">> wav file saved to:", output_path)
             return output_path
         else:
-            # 返回以符合Gradio的格式要求
-            wav_data = wav.type(torch.int16)
-            wav_data = wav_data.numpy().T  
-            return (sampling_rate, wav_data)
+            # Convert audio tensor to bytes in WAV format
+            wav_int16 = wav.type(torch.int16) # Ensure correct data type
+            buffer = io.BytesIO() # Create an in-memory buffer
+            # Save the tensor to the buffer as a WAV file
+            # Note: We use wav.cpu() because torchaudio.save expects a CPU tensor
+            torchaudio.save(buffer, wav_int16.cpu(), sampling_rate, format="wav")
+            buffer.seek(0) # Rewind the buffer to the beginning
+            wav_bytes = buffer.read() # Read the bytes
+            return wav_bytes # Return the raw audio bytes
 
 
 if __name__ == "__main__":
     prompt_wav="test_data/input.wav"
     #text="晕 XUAN4 是 一 种 GAN3 觉"
-    #text='大家好，我现在正在bilibili 体验 ai 科技，说实话，来之前我绝对想不到！AI技术已经发展到这样匪夷所思的地步了！'
-    text="There is a vehicle arriving in dock number 7?"
+    # text='大家好，我现在正在bilibili 体验 ai 科技，说实话，来之前我绝对想不到！AI技术已经发展到这样匪夷所思的地步了！'
+    # text="宝贝们别担心，咱们罗马仕充电宝可是有7天无理由退货的，还自带运费险！买贵了？不存在的，直播间专属优惠价给你安排上～今天下单的宝宝更有福利哦，评论区打'已拍'立马送你原装数据线！发货速度也是杠杠的，早上下单可能当天就能发出，最晚第二天也给你安排得明明白白。偏远地区的小可爱们也不用等太久，两三天就能到手啦～全国联保加一年质保，这售后你说香不香"
+    text = "宝贝们别担心。"
 
-    tts = IndexTTS(cfg_path="checkpoints/config.yaml", model_dir="checkpoints", is_fp16=True, use_cuda_kernel=False)
-    tts.infer(audio_prompt=prompt_wav, text=text, output_path="gen.wav", verbose=True)
+
+
+    tts = IndexTTS(cfg_path="checkpoints/config.yaml", model_dir="checkpoints", is_fp16=True, use_cuda_kernel=True)
+    tts.infer_fast(audio_prompt=prompt_wav, text=text, output_path="gen.wav", verbose=True)
